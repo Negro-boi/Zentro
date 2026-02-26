@@ -282,6 +282,19 @@ const BASE_STYLES = `
   .empty-title { font-size:18px; color:var(--text2); font-family:'DM Serif Display',serif; }
   .empty-sub { font-size:13px; color:var(--text3); max-width:280px; }
 
+  /* ── VAULT CONFIRM ── */
+  .confirm-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); z-index:400; display:flex; align-items:center; justify-content:center; padding:24px; animation:fadeIn 0.15s; }
+  .confirm-modal { background:var(--surface); border:1px solid var(--border2); border-radius:var(--radius2); width:100%; max-width:360px; padding:32px; animation:slideUp 0.2s; box-shadow:0 24px 80px rgba(0,0,0,0.5); text-align:center; }
+  .confirm-icon { font-size:36px; margin-bottom:14px; }
+  .confirm-title { font-family:'DM Serif Display',serif; font-size:22px; color:var(--text); margin-bottom:6px; }
+  .confirm-sub { font-size:13px; color:var(--text3); margin-bottom:24px; line-height:1.5; }
+  .confirm-input { width:100%; background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:14px; outline:none; transition:border-color 0.2s,box-shadow 0.2s; letter-spacing:2px; margin-bottom:10px; text-align:center; }
+  .confirm-input:focus { border-color:var(--acc); box-shadow:0 0 0 3px var(--acc-dim); }
+  .confirm-input.shake { animation:shake 0.4s; border-color:var(--red); }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-5px)} 80%{transform:translateX(5px)} }
+  .confirm-actions { display:flex; gap:8px; margin-top:4px; }
+  .confirm-hint { font-size:11px; color:var(--text3); margin-top:10px; }
+
   /* ── DASHBOARD ── */
   .dash-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:24px; }
   .dash-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius2); padding:20px; }
@@ -584,10 +597,12 @@ function AddEditCardModal({card,onSave,onClose}) {
   );
 }
 
-function DetailPanel({entry,breachData,duplicates,onEdit,onDelete,onClose}) {
+function DetailPanel({entry,breachData,duplicates,requireAuth,onEdit,onDelete,onClose}) {
   const [showPw,setShowPw]=useState(false);
   const [toast,setToast]=useState(null);
   const copy=(val,label)=>{navigator.clipboard?.writeText(val).catch(()=>{});setToast(label+" copied!");setTimeout(()=>setToast(null),2200);};
+  const safeCopy=(val,label,type)=>requireAuth(type,()=>copy(val,label));
+  const safeReveal=()=>requireAuth("reveal",()=>setShowPw(p=>!p));
   const s=getStrength(entry.password);
   const age=daysSince(entry.updatedAt||entry.createdAt);
   const breach=breachData[entry.id];
@@ -616,11 +631,11 @@ function DetailPanel({entry,breachData,duplicates,onEdit,onDelete,onClose}) {
         <div className="detail-section-title">Credentials</div>
         <div className="detail-row">
           <div className="detail-row-label">Username</div>
-          <div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,maxWidth:170,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{entry.username}</span><button className="icon-btn" onClick={()=>copy(entry.username,"Username")}>⎘</button></div>
+          <div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,maxWidth:170,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{entry.username}</span><button className="icon-btn" onClick={()=>safeCopy(entry.username,"Username","copy_username")}>⎘</button></div>
         </div>
         <div className="detail-row">
           <div className="detail-row-label">Password</div>
-          <div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{showPw?entry.password:"•".repeat(Math.min(entry.password.length,16))}</span><button className="icon-btn" onClick={()=>setShowPw(p=>!p)}>{showPw?"◌":"◉"}</button><button className="icon-btn" onClick={()=>copy(entry.password,"Password")}>⎘</button></div>
+          <div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{showPw?entry.password:"•".repeat(Math.min(entry.password.length,16))}</span><button className="icon-btn" onClick={safeReveal}>{showPw?"◌":"◉"}</button><button className="icon-btn" onClick={()=>safeCopy(entry.password,"Password","copy_password")}>⎘</button></div>
         </div>
         <div style={{padding:"10px 0 4px"}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:11,color:"var(--text3)",textTransform:"uppercase",letterSpacing:1}}>Strength</span><span style={{fontSize:11,fontFamily:"JetBrains Mono",color:s.color,textTransform:"uppercase",letterSpacing:1}}>{s.label}</span></div>
@@ -638,10 +653,12 @@ function DetailPanel({entry,breachData,duplicates,onEdit,onDelete,onClose}) {
   );
 }
 
-function CardDetailPanel({card,onEdit,onDelete,onClose}) {
+function CardDetailPanel({card,requireAuth,onEdit,onDelete,onClose}) {
   const [showCvv,setShowCvv]=useState(false);
   const [toast,setToast]=useState(null);
   const copy=(val,label)=>{navigator.clipboard?.writeText(val).catch(()=>{});setToast(label+" copied!");setTimeout(()=>setToast(null),2200);};
+  const safeCopy=(val,label,type)=>requireAuth(type,()=>copy(val,label));
+  const safeRevealCvv=()=>requireAuth("reveal",()=>setShowCvv(p=>!p));
   const exp=isExpired(card.expiry);
   return (
     <div className="detail-panel">
@@ -659,10 +676,10 @@ function CardDetailPanel({card,onEdit,onDelete,onClose}) {
       {exp&&<div style={{background:"color-mix(in srgb,var(--red) 10%,transparent)",border:"1px solid color-mix(in srgb,var(--red) 25%,transparent)",color:"var(--red)",padding:"9px 13px",borderRadius:8,fontSize:12,marginBottom:16}}>⚠ This card expired {card.expiry}. Update or remove it.</div>}
       <div className="detail-section">
         <div className="detail-section-title">Card Details</div>
-        <div className="detail-row"><div className="detail-row-label">Number</div><div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{maskCC(card.number)}</span><button className="icon-btn" onClick={()=>copy(card.number,"Card number")}>⎘</button></div></div>
-        <div className="detail-row"><div className="detail-row-label">Holder</div><div className="detail-row-val" style={{fontFamily:"Outfit",fontSize:13}}>{card.holder}<button className="icon-btn" onClick={()=>copy(card.holder,"Name")}>⎘</button></div></div>
-        <div className="detail-row"><div className="detail-row-label">Expiry</div><div className="detail-row-val" style={{color:exp?"var(--red)":"var(--text)"}}>{card.expiry}<button className="icon-btn" onClick={()=>copy(card.expiry,"Expiry")}>⎘</button></div></div>
-        <div className="detail-row"><div className="detail-row-label">CVV</div><div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{showCvv?card.cvv:"•".repeat(card.cvv?.length||3)}</span><button className="icon-btn" onClick={()=>setShowCvv(p=>!p)}>{showCvv?"◌":"◉"}</button><button className="icon-btn" onClick={()=>copy(card.cvv,"CVV")}>⎘</button></div></div>
+        <div className="detail-row"><div className="detail-row-label">Number</div><div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{maskCC(card.number)}</span><button className="icon-btn" onClick={()=>safeCopy(card.number,"Card number","copy_card")}>⎘</button></div></div>
+        <div className="detail-row"><div className="detail-row-label">Holder</div><div className="detail-row-val" style={{fontFamily:"Outfit",fontSize:13}}>{card.holder}<button className="icon-btn" onClick={()=>safeCopy(card.holder,"Name","copy_username")}>⎘</button></div></div>
+        <div className="detail-row"><div className="detail-row-label">Expiry</div><div className="detail-row-val" style={{color:exp?"var(--red)":"var(--text)"}}>{card.expiry}<button className="icon-btn" onClick={()=>safeCopy(card.expiry,"Expiry","copy_username")}>⎘</button></div></div>
+        <div className="detail-row"><div className="detail-row-label">CVV</div><div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{showCvv?card.cvv:"•".repeat(card.cvv?.length||3)}</span><button className="icon-btn" onClick={safeRevealCvv}>{showCvv?"◌":"◉"}</button><button className="icon-btn" onClick={()=>safeCopy(card.cvv,"CVV","copy_card")}>⎘</button></div></div>
       </div>
     </div>
   );
@@ -836,6 +853,61 @@ function SettingsPanel({accent,dark,onAccent,onToggleDark,onClose}) {
 }
 
 // ─────────────────────────────────────────────
+// VAULT CONFIRM MODAL
+// ─────────────────────────────────────────────
+function VaultConfirm({ action, onConfirm, onCancel }) {
+  const [pw, setPw] = useState("");
+  const [shake, setShake] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
+
+  const attempt = () => {
+    const stored = localStorage.getItem("vaultmp");
+    if (stored === btoa(pw)) {
+      onConfirm();
+    } else {
+      setShake(true);
+      setPw("");
+      setTimeout(() => setShake(false), 500);
+      inputRef.current?.focus();
+    }
+  };
+
+  const labels = {
+    copy_password: "copy this password",
+    copy_username: "copy this username",
+    copy_card:     "copy this card detail",
+    reveal:        "reveal this password",
+    edit:          "edit this entry",
+  };
+
+  return (
+    <div className="confirm-overlay" onClick={e => e.target === e.currentTarget && onCancel()}>
+      <div className="confirm-modal">
+        <div className="confirm-icon">🔐</div>
+        <div className="confirm-title">Confirm Identity</div>
+        <div className="confirm-sub">Enter your vault password to {labels[action] || "continue"}.</div>
+        <input
+          ref={inputRef}
+          className={`confirm-input${shake ? " shake" : ""}`}
+          type="password"
+          placeholder="Vault password"
+          value={pw}
+          onChange={e => setPw(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && attempt()}
+        />
+        <div className="confirm-actions">
+          <button className="btn-ghost" style={{ flex: 1, padding: "10px" }} onClick={onCancel}>Cancel</button>
+          <button className="btn-primary" style={{ flex: 2, padding: "10px" }} onClick={attempt}>Confirm →</button>
+        </div>
+        <div className="confirm-hint">This protects sensitive data from shoulder surfing.</div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // LOCK SCREEN
 // ─────────────────────────────────────────────
 function LockScreen({onUnlock}) {
@@ -907,6 +979,12 @@ export default function PasswordManager() {
   const [toast,setToast]=useState(null);
   const [breachData,setBreachData]=useState({});
   const [showSettings,setShowSettings]=useState(false);
+  const [pendingAction,setPendingAction]=useState(null); // {type, fn}
+
+  // Require vault password before sensitive action
+  const requireAuth = useCallback((type, fn) => {
+    setPendingAction({ type, fn });
+  }, []);
 
   // Theme
   const [accent,setAccent]=useState(()=>localStorage.getItem("vault_accent")||"gold");
@@ -980,7 +1058,12 @@ export default function PasswordManager() {
     showToast(isEdit?"Card updated":"Card added");
   };
   const handleDeleteCard=(id)=>{saveCards(cards.filter(c=>c.id!==id));setSelectedCard(null);showToast("Card deleted");};
-  const handleCopy=(ev,val,label)=>{ev.stopPropagation();navigator.clipboard?.writeText(val).catch(()=>{});showToast(label+" copied!");};
+  const handleCopy=(ev,val,label)=>{
+    ev.stopPropagation();
+    const isPassword = label.toLowerCase().includes("password") || label.toLowerCase().includes("cvv");
+    const type = isPassword ? "copy_password" : "copy_username";
+    requireAuth(type, ()=>{ navigator.clipboard?.writeText(val).catch(()=>{}); showToast(label+" copied!"); });
+  };
 
   const hasPanel=selected||selectedCard||showSettings;
 
@@ -1153,14 +1236,15 @@ export default function PasswordManager() {
         </main>
 
         {/* PANELS */}
-        {selected&&!showSettings&&<DetailPanel entry={selected} breachData={breachData} duplicates={duplicates} onClose={()=>setSelected(null)} onEdit={()=>{setEditEntry(selected);setSelected(null);}} onDelete={()=>handleDelete(selected.id)}/>}
-        {selectedCard&&!showSettings&&<CardDetailPanel card={selectedCard} onClose={()=>setSelectedCard(null)} onEdit={()=>{setEditCard(selectedCard);setSelectedCard(null);}} onDelete={()=>handleDeleteCard(selectedCard.id)}/>}
+        {selected&&!showSettings&&<DetailPanel entry={selected} breachData={breachData} duplicates={duplicates} requireAuth={requireAuth} onClose={()=>setSelected(null)} onEdit={()=>{requireAuth("edit",()=>{setEditEntry(selected);setSelected(null);});}} onDelete={()=>handleDelete(selected.id)}/>}
+        {selectedCard&&!showSettings&&<CardDetailPanel card={selectedCard} requireAuth={requireAuth} onClose={()=>setSelectedCard(null)} onEdit={()=>{requireAuth("edit",()=>{setEditCard(selectedCard);setSelectedCard(null);});}} onDelete={()=>handleDeleteCard(selectedCard.id)}/>}
         {showSettings&&<SettingsPanel accent={accent} dark={dark} onAccent={a=>{setAccent(a);}} onToggleDark={()=>setDark(p=>!p)} onClose={()=>setShowSettings(false)}/>}
       </div>
 
       {/* MODALS */}
       {(showAdd||editEntry)&&<AddEditModal entry={editEntry} onSave={handleSave} onClose={()=>{setShowAdd(false);setEditEntry(null);}}/>}
       {(showAddCard||editCard)&&<AddEditCardModal card={editCard} onSave={handleSaveCard} onClose={()=>{setShowAddCard(false);setEditCard(null);}}/>}
+      {pendingAction&&<VaultConfirm action={pendingAction.type} onConfirm={()=>{pendingAction.fn();setPendingAction(null);}} onCancel={()=>setPendingAction(null)}/>}
     </div>
   );
 }
