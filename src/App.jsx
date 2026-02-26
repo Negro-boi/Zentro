@@ -1007,7 +1007,7 @@ export default function PasswordManager() {
         <aside className="sidebar">
           <div className="sidebar-logo">
             <div className="logo-mark">🔐</div>
-            <div><div className="logo-text">Vault</div><div className="logo-ver">v4.0 · ENCRYPTED</div></div>
+            <div><div className="logo-text">Zentro</div><div className="logo-ver">v4.0 · ENCRYPTED</div></div>
           </div>
 
           <div className="search-wrap">
