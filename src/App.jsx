@@ -856,7 +856,7 @@ function LockScreen({onUnlock}) {
     <div className="lock-screen">
       <div className="lock-icon">🔐</div>
       <div style={{textAlign:"center"}}>
-        <div className="lock-title">Vault</div>
+        <div className="lock-title">Zentro</div>
         <div className="lock-sub">{isNew?"Create your vault":"Unlock your vault"}</div>
       </div>
       <div className="lock-form">
