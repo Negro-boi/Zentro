@@ -295,6 +295,30 @@ const BASE_STYLES = `
   .confirm-actions { display:flex; gap:8px; margin-top:4px; }
   .confirm-hint { font-size:11px; color:var(--text3); margin-top:10px; }
 
+  /* ── LOCKOUT SCREEN ── */
+  .lockout-box { background:color-mix(in srgb,var(--red) 10%,transparent); border:1px solid color-mix(in srgb,var(--red) 30%,transparent); border-radius:var(--radius2); padding:24px; text-align:center; width:100%; max-width:360px; }
+  .lockout-icon { font-size:32px; margin-bottom:10px; }
+  .lockout-title { font-family:'DM Serif Display',serif; font-size:20px; color:var(--red); margin-bottom:6px; }
+  .lockout-sub { font-size:13px; color:var(--text2); line-height:1.5; }
+  .lockout-timer { font-family:'JetBrains Mono',monospace; font-size:36px; color:var(--red); margin:16px 0; font-weight:700; }
+  .lockout-progress-track { height:4px; background:color-mix(in srgb,var(--red) 15%,transparent); border-radius:2px; overflow:hidden; margin-top:4px; }
+  .lockout-progress-fill { height:100%; background:var(--red); border-radius:2px; transition:width 1s linear; }
+  .attempts-row { display:flex; gap:6px; justify-content:center; margin-top:8px; }
+  .attempt-dot { width:10px; height:10px; border-radius:50%; transition:background 0.3s; }
+
+  /* ── SESSION HISTORY ── */
+  .session-list { display:flex; flex-direction:column; gap:8px; }
+  .session-item { background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:12px 14px; display:flex; align-items:flex-start; gap:12px; }
+  .session-dot { width:8px; height:8px; border-radius:50%; background:var(--green); flex-shrink:0; margin-top:5px; }
+  .session-dot.failed { background:var(--red); }
+  .session-dot.locked { background:var(--orange); }
+  .session-time { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--acc); margin-bottom:3px; }
+  .session-detail { font-size:12px; color:var(--text2); }
+  .session-badge { display:inline-flex; align-items:center; font-size:10px; padding:2px 7px; border-radius:12px; margin-top:4px; }
+  .session-badge.success { background:color-mix(in srgb,var(--green) 12%,transparent); color:var(--green); border:1px solid color-mix(in srgb,var(--green) 25%,transparent); }
+  .session-badge.failed  { background:color-mix(in srgb,var(--red) 12%,transparent); color:var(--red); border:1px solid color-mix(in srgb,var(--red) 25%,transparent); }
+  .session-badge.locked  { background:color-mix(in srgb,var(--orange) 12%,transparent); color:var(--orange); border:1px solid color-mix(in srgb,var(--orange) 25%,transparent); }
+
   /* ── DASHBOARD ── */
   .dash-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:24px; }
   .dash-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius2); padding:20px; }
@@ -430,6 +454,57 @@ const DEMO_CARDS = [
   {id:"c1",name:"Chase Sapphire",number:"4532015112830366",holder:"John Doe",expiry:"09/27",cvv:"452",bank:"Chase",color:"gold"},
   {id:"c2",name:"Amex Platinum",number:"378282246310005",holder:"John Doe",expiry:"03/25",cvv:"1234",bank:"American Express",color:"emerald"},
 ];
+
+// ─────────────────────────────────────────────
+// LOCKOUT & SESSION HISTORY UTILS
+// ─────────────────────────────────────────────
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_DURATION = 5 * 60; // 5 minutes in seconds
+
+function getLockoutState() {
+  try {
+    const raw = localStorage.getItem("vault_lockout");
+    if (!raw) return null;
+    const state = JSON.parse(raw);
+    if (Date.now() > state.until) { localStorage.removeItem("vault_lockout"); return null; }
+    return state;
+  } catch { return null; }
+}
+
+function setLockoutState() {
+  const until = Date.now() + LOCKOUT_DURATION * 1000;
+  localStorage.setItem("vault_lockout", JSON.stringify({ until }));
+  addSessionEvent("locked", "Vault locked after too many failed attempts");
+}
+
+function getFailedAttempts() { return parseInt(localStorage.getItem("vault_failed") || "0"); }
+function incrementFailed() { const n = getFailedAttempts() + 1; localStorage.setItem("vault_failed", n); return n; }
+function clearFailed() { localStorage.removeItem("vault_failed"); }
+
+function getBrowserInfo() {
+  const ua = navigator.userAgent;
+  if (ua.includes("Chrome")) return "Chrome";
+  if (ua.includes("Firefox")) return "Firefox";
+  if (ua.includes("Safari")) return "Safari";
+  if (ua.includes("Edge")) return "Edge";
+  return "Unknown Browser";
+}
+
+function formatSessionTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) + " · " + d.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+}
+
+function getSessionHistory() {
+  try { return JSON.parse(localStorage.getItem("vault_sessions") || "[]"); } catch { return []; }
+}
+
+function addSessionEvent(type, detail) {
+  const sessions = getSessionHistory();
+  sessions.unshift({ type, detail, ts: Date.now(), browser: getBrowserInfo() });
+  if (sessions.length > 20) sessions.splice(20);
+  localStorage.setItem("vault_sessions", JSON.stringify(sessions));
+}
 
 // ─────────────────────────────────────────────
 // COMPONENTS
@@ -812,6 +887,7 @@ function Dashboard({entries,breachData,duplicates}) {
 // SETTINGS PANEL
 // ─────────────────────────────────────────────
 function SettingsPanel({accent,dark,onAccent,onToggleDark,onClose}) {
+  const sessions = getSessionHistory();
   return (
     <div className="settings-panel">
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24}}>
@@ -847,6 +923,33 @@ function SettingsPanel({accent,dark,onAccent,onToggleDark,onClose}) {
           <button className="btn-ghost" style={{fontSize:12,padding:"8px 14px"}}>Ghost Button</button>
           <div style={{height:4,borderRadius:2,background:`linear-gradient(90deg,var(--acc),var(--acc2))`}}/>
         </div>
+      </div>
+      <div className="settings-section">
+        <div className="settings-title" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <span>Session History</span>
+          <span style={{fontSize:10,color:"var(--text3)",fontFamily:"JetBrains Mono,monospace"}}>LAST {Math.min(sessions.length,20)}</span>
+        </div>
+        {sessions.length===0?(
+          <div style={{fontSize:13,color:"var(--text3)",textAlign:"center",padding:"20px 0"}}>No session history yet.</div>
+        ):(
+          <div className="session-list">
+            {sessions.map((s,i)=>(
+              <div key={i} className="session-item">
+                <div className={`session-dot${s.type==="failed"?" failed":s.type==="locked"?" locked":""}`}/>
+                <div>
+                  <div className="session-time">{formatSessionTime(s.ts)}</div>
+                  <div className="session-detail">{s.detail}</div>
+                  <div style={{marginTop:5}}>
+                    <span className={`session-badge ${s.type==="success"?"success":s.type==="locked"?"locked":"failed"}`}>
+                      {s.type==="success"?"✓ Unlocked":s.type==="locked"?"🔒 Locked out":"✗ Failed attempt"}
+                    </span>
+                    <span style={{fontSize:10,color:"var(--text3)",marginLeft:6}}>{s.browser}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -911,33 +1014,94 @@ function VaultConfirm({ action, onConfirm, onCancel }) {
 // LOCK SCREEN
 // ─────────────────────────────────────────────
 function LockScreen({onUnlock}) {
-  const [mp,setMp]=useState("");const [confirm,setConfirm]=useState("");
-  const [isNew,setIsNew]=useState(true);const [error,setError]=useState("");
+  const [mp,setMp]=useState("");
+  const [confirm,setConfirm]=useState("");
+  const [isNew,setIsNew]=useState(true);
+  const [error,setError]=useState("");
+  const [attempts,setAttempts]=useState(getFailedAttempts);
+  const [lockout,setLockout2]=useState(getLockoutState);
+  const [lockRemaining,setLockRemaining]=useState(0);
+
   useEffect(()=>{if(localStorage.getItem("vaultmp"))setIsNew(false);},[]);
+
+  // Lockout countdown
+  useEffect(()=>{
+    if(!lockout)return;
+    const tick=()=>{
+      const secs=Math.max(0,Math.ceil((lockout.until-Date.now())/1000));
+      setLockRemaining(secs);
+      if(secs<=0){setLockout2(null);setAttempts(0);}
+    };
+    tick();
+    const id=setInterval(tick,1000);
+    return()=>clearInterval(id);
+  },[lockout]);
+
   const handle=()=>{
+    if(lockout)return;
     if(isNew){
       if(mp.length<6){setError("Master password must be at least 6 characters.");return;}
       if(mp!==confirm){setError("Passwords don't match.");return;}
-      localStorage.setItem("vaultmp",btoa(mp));onUnlock();
+      localStorage.setItem("vaultmp",btoa(mp));
+      clearFailed();
+      addSessionEvent("success","Vault created and unlocked");
+      onUnlock();
     } else {
-      if(localStorage.getItem("vaultmp")===btoa(mp))onUnlock();
-      else{setError("Incorrect master password.");setMp("");}
+      if(localStorage.getItem("vaultmp")===btoa(mp)){
+        clearFailed();
+        addSessionEvent("success",`Unlocked via ${getBrowserInfo()}`);
+        onUnlock();
+      } else {
+        const newCount=incrementFailed();
+        setAttempts(newCount);
+        addSessionEvent("failed",`Failed attempt ${newCount}/${MAX_ATTEMPTS}`);
+        if(newCount>=MAX_ATTEMPTS){
+          setLockoutState();
+          setLockout2(getLockoutState());
+          setError("");
+        } else {
+          setError(`Wrong password. ${MAX_ATTEMPTS-newCount} attempt${MAX_ATTEMPTS-newCount!==1?"s":""} remaining.`);
+        }
+        setMp("");
+      }
     }
   };
+
+  const lockoutPct=(lockRemaining/LOCKOUT_DURATION)*100;
+
   return (
     <div className="lock-screen">
       <div className="lock-icon">🔐</div>
       <div style={{textAlign:"center"}}>
         <div className="lock-title">Zentro</div>
-        <div className="lock-sub">{isNew?"Create your vault":"Unlock your vault"}</div>
+        <div className="lock-sub">{isNew?"Create your Zentro":"Unlock your Zentro"}</div>
       </div>
-      <div className="lock-form">
-        {error&&<div className="error-msg">{error}</div>}
-        <input className="lock-input" type="password" placeholder={isNew?"Create master password":"Master password"} value={mp} onChange={e=>{setMp(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&(isNew?confirm&&handle():handle())} autoFocus/>
-        {isNew&&<input className="lock-input" type="password" placeholder="Confirm master password" value={confirm} onChange={e=>{setConfirm(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&handle()}/>}
-        <button className="btn-primary" onClick={handle}>{isNew?"Create Vault →":"Unlock →"}</button>
-        {!isNew&&<button className="btn-ghost" onClick={()=>{localStorage.clear();setIsNew(true);setMp("");setError("");}}>Reset vault</button>}
-      </div>
+
+      {lockout ? (
+        <div className="lockout-box">
+          <div className="lockout-icon">🚫</div>
+          <div className="lockout-title">Vault Locked</div>
+          <div className="lockout-sub">Too many failed attempts. Try again in:</div>
+          <div className="lockout-timer">{String(Math.floor(lockRemaining/60)).padStart(2,"0")}:{String(lockRemaining%60).padStart(2,"0")}</div>
+          <div className="lockout-progress-track"><div className="lockout-progress-fill" style={{width:`${lockoutPct}%`}}/></div>
+          <div style={{fontSize:11,color:"var(--text3)",marginTop:10}}>This protects your vault from brute force attacks.</div>
+        </div>
+      ) : (
+        <div className="lock-form">
+          {error&&<div className="error-msg">{error}</div>}
+          {!isNew&&attempts>0&&(
+            <div className="attempts-row">
+              {Array.from({length:MAX_ATTEMPTS}).map((_,i)=>(
+                <div key={i} className="attempt-dot" style={{background:i<attempts?"var(--red)":"var(--surface3)",border:`1px solid ${i<attempts?"var(--red)":"var(--border2)"}`}}/>
+              ))}
+            </div>
+          )}
+          <input className="lock-input" type="password" placeholder={isNew?"Create master password":"Master password"} value={mp} onChange={e=>{setMp(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&(isNew?confirm&&handle():handle())} autoFocus/>
+          {isNew&&<input className="lock-input" type="password" placeholder="Confirm master password" value={confirm} onChange={e=>{setConfirm(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&handle()}/>}
+          <button className="btn-primary" onClick={handle}>{isNew?"Create Vault →":"Unlock →"}</button>
+          {!isNew&&<button className="btn-ghost" onClick={()=>{localStorage.clear();setIsNew(true);setMp("");setError("");setAttempts(0);}}>Reset vault</button>}
+        </div>
+      )}
     </div>
   );
 }
@@ -1014,7 +1178,7 @@ export default function PasswordManager() {
     });
   },[entries,phase]);
 
-  const handleLock=useCallback(()=>{setPhase("lock");setSelected(null);setSelectedCard(null);setBreachData({});},[]);
+  const handleLock=useCallback(()=>{addSessionEvent("locked","Vault auto-locked due to inactivity");setPhase("lock");setSelected(null);setSelectedCard(null);setBreachData({});},[]);
   const remaining=useAutoLock(handleLock,phase==="app");
   const showWarning=remaining<=60&&phase==="app";
 
@@ -1135,7 +1299,7 @@ export default function PasswordManager() {
             </div>
             <div className="sidebar-actions">
               <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{setShowSettings(p=>!p);setSelected(null);setSelectedCard(null);}}>⚙ Settings</button>
-              <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={handleLock}>🔒 Lock</button>
+              <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{addSessionEvent("locked","Vault manually locked");handleLock();}}>🔒 Lock</button>
             </div>
           </div>
         </aside>
