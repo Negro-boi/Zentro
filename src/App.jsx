@@ -319,6 +319,102 @@ const BASE_STYLES = `
   .session-badge.failed  { background:color-mix(in srgb,var(--red) 12%,transparent); color:var(--red); border:1px solid color-mix(in srgb,var(--red) 25%,transparent); }
   .session-badge.locked  { background:color-mix(in srgb,var(--orange) 12%,transparent); color:var(--orange); border:1px solid color-mix(in srgb,var(--orange) 25%,transparent); }
 
+  /* ── MOBILE TOP BAR ── */
+  .mobile-topbar { display:none; position:fixed; top:0; left:0; right:0; z-index:150; height:56px; background:var(--surface); border-bottom:1px solid var(--border); align-items:center; justify-content:space-between; padding:0 16px; }
+  .mobile-topbar-logo { display:flex; align-items:center; gap:10px; }
+  .mobile-topbar-title { font-family:'DM Serif Display',serif; font-size:20px; color:var(--text); }
+  .mobile-menu-btn { background:var(--surface2); border:1px solid var(--border); color:var(--text2); width:36px; height:36px; border-radius:9px; cursor:pointer; font-size:16px; display:flex; align-items:center; justify-content:center; }
+  .mobile-add-btn { background:linear-gradient(135deg,var(--acc),var(--acc2)); border:none; color:var(--surface); width:36px; height:36px; border-radius:9px; cursor:pointer; font-size:18px; display:flex; align-items:center; justify-content:center; font-weight:bold; }
+
+  /* ── MOBILE SIDEBAR DRAWER ── */
+  .sidebar-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(4px); z-index:160; }
+  .sidebar-backdrop.open { display:block; }
+
+  /* ── MOBILE BOTTOM NAV ── */
+  .mobile-bottomnav { display:none; position:fixed; bottom:0; left:0; right:0; z-index:150; height:64px; background:var(--surface); border-top:1px solid var(--border); align-items:center; justify-content:space-around; padding:0 8px; }
+  .mobile-tab { display:flex; flex-direction:column; align-items:center; gap:3px; padding:8px 16px; border-radius:10px; cursor:pointer; transition:all 0.15s; border:none; background:transparent; color:var(--text3); flex:1; }
+  .mobile-tab.active { color:var(--acc); }
+  .mobile-tab-icon { font-size:20px; line-height:1; }
+  .mobile-tab-label { font-size:10px; letter-spacing:0.5px; font-family:'Outfit',sans-serif; }
+
+  /* ── RESPONSIVE BREAKPOINTS ── */
+  @media (max-width: 768px) {
+    .mobile-topbar { display:flex; }
+    .mobile-bottomnav { display:flex; }
+
+    /* Sidebar becomes a drawer */
+    .sidebar {
+      position:fixed; left:0; top:0; bottom:0; z-index:170;
+      transform:translateX(-100%); transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);
+      width:280px; min-height:100vh; padding-top:24px;
+      box-shadow: 4px 0 32px rgba(0,0,0,0.3);
+    }
+    .sidebar.open { transform:translateX(0); }
+
+    /* Main layout */
+    .main { flex-direction:column; padding-top:56px; padding-bottom:64px; }
+    .content { padding:16px; max-height:none; }
+    .content-header { margin-bottom:16px; }
+    .page-title { font-size:22px; }
+    .header-actions { display:none; } /* replaced by topbar + button */
+
+    /* Password grid — single column */
+    .pw-grid { grid-template-columns:1fr; gap:10px; }
+    .cc-grid { grid-template-columns:1fr; gap:10px; }
+
+    /* Detail panel — full screen sheet */
+    .detail-panel {
+      position:fixed; inset:0; width:100%; border-left:none;
+      border-top:1px solid var(--border); z-index:180;
+      padding:16px; padding-top:60px;
+      animation:slideUp 0.25s;
+    }
+
+    /* Settings panel — full screen */
+    .settings-panel {
+      position:fixed; inset:0; width:100%; border-left:none; z-index:180;
+      padding:16px; padding-top:60px; animation:slideUp 0.25s;
+    }
+
+    /* Dashboard grid */
+    .dash-grid { grid-template-columns:1fr; }
+    .dash-card.span2 { grid-column:span 1; }
+    .dash-card.span3 { grid-column:span 1; }
+
+    /* Modal — full width */
+    .overlay { padding:0; align-items:flex-end; }
+    .modal { max-width:100%; border-radius:var(--radius2) var(--radius2) 0 0; max-height:92vh; }
+
+    /* Autolock banner */
+    .autolock-banner { font-size:11px; padding:8px 12px; }
+
+    /* Cards — make action buttons wrap */
+    .cc-actions { flex-wrap:wrap; }
+    .cc-action-btn { flex:1; justify-content:center; min-width:80px; }
+
+    /* Toast above bottom nav */
+    .copied-toast { bottom:76px; }
+
+    /* Field actions always visible on mobile (no hover) */
+    .field-actions { opacity:1 !important; }
+
+    /* Lock screen */
+    .lock-screen { padding:24px 20px; gap:24px; }
+    .lock-title { font-size:34px; }
+
+    /* Vault door scene scale down */
+    .vault-scene { width:220px; height:220px; }
+    .vault-door-text { font-size:22px; bottom:60px; }
+    .vault-door-subtext { font-size:8px; bottom:42px; }
+    .vault-progress-wrap { bottom:12px; width:160px; }
+  }
+
+  @media (max-width: 400px) {
+    .vault-scene { width:180px; height:180px; }
+    .content { padding:12px; }
+    .pw-card { padding:14px; }
+  }
+
   /* ── DASHBOARD ── */
   .dash-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:24px; }
   .dash-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius2); padding:20px; }
@@ -1143,7 +1239,8 @@ export default function PasswordManager() {
   const [toast,setToast]=useState(null);
   const [breachData,setBreachData]=useState({});
   const [showSettings,setShowSettings]=useState(false);
-  const [pendingAction,setPendingAction]=useState(null); // {type, fn}
+  const [pendingAction,setPendingAction]=useState(null);
+  const [sidebarOpen,setSidebarOpen]=useState(false);
 
   // Require vault password before sensitive action
   const requireAuth = useCallback((type, fn) => {
@@ -1249,9 +1346,22 @@ export default function PasswordManager() {
         </div>
       )}
 
+      {/* MOBILE TOP BAR */}
+      <div className="mobile-topbar">
+        <button className="mobile-menu-btn" onClick={()=>setSidebarOpen(p=>!p)}>☰</button>
+        <div className="mobile-topbar-logo">
+          <div className="logo-mark" style={{width:28,height:28,fontSize:14}}>🔐</div>
+          <span className="mobile-topbar-title">Zentro</span>
+        </div>
+        <button className="mobile-add-btn" onClick={()=>page==="cards"?setShowAddCard(true):setShowAdd(true)}>+</button>
+      </div>
+
+      {/* SIDEBAR BACKDROP */}
+      <div className={`sidebar-backdrop${sidebarOpen?" open":""}`} onClick={()=>setSidebarOpen(false)}/>
+
       <div className="main" style={{paddingTop:showWarning?41:0}}>
         {/* SIDEBAR */}
-        <aside className="sidebar">
+        <aside className={`sidebar${sidebarOpen?" open":""}`}>
           <div className="sidebar-logo">
             <div className="logo-mark">🔐</div>
             <div><div className="logo-text">Zentro</div><div className="logo-ver">v4.0 · ENCRYPTED</div></div>
@@ -1264,15 +1374,15 @@ export default function PasswordManager() {
 
           <div className="nav-section">
             <div className="nav-label">Pages</div>
-            <div className={`nav-item${page==="vault"?" active":""}`} onClick={()=>{setPage("vault");setSelected(null);setSelectedCard(null);}}>
+            <div className={`nav-item${page==="vault"?" active":""}`} onClick={()=>{setPage("vault");setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>
               <span className="nav-icon">◉</span><span>Passwords</span><span className="nav-count">{entries.length}</span>
             </div>
-            <div className={`nav-item${page==="cards"?" active":""}`} onClick={()=>{setPage("cards");setSelected(null);}}>
+            <div className={`nav-item${page==="cards"?" active":""}`} onClick={()=>{setPage("cards");setSelected(null);setSidebarOpen(false);}}>
               <span className="nav-icon">◈</span><span>Cards</span>
               {expiredCards>0&&<span className="nav-count" style={{color:"var(--red)",background:"color-mix(in srgb,var(--red) 15%,transparent)"}}>{expiredCards} exp</span>}
               {expiredCards===0&&<span className="nav-count">{cards.length}</span>}
             </div>
-            <div className={`nav-item${page==="dashboard"?" active":""}`} onClick={()=>{setPage("dashboard");setSelected(null);setSelectedCard(null);}}>
+            <div className={`nav-item${page==="dashboard"?" active":""}`} onClick={()=>{setPage("dashboard");setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>
               <span className="nav-icon">◆</span><span>Dashboard</span>
               {(breachCount+weakCount)>0&&<span className="nav-count" style={{color:"var(--red)",background:"color-mix(in srgb,var(--red) 15%,transparent)"}}>{breachCount+weakCount}</span>}
             </div>
@@ -1282,7 +1392,7 @@ export default function PasswordManager() {
             <div className="nav-section">
               <div className="nav-label">Categories</div>
               {CATEGORIES.map(c=>(
-                <div key={c.id} className={`nav-item${category===c.id?" active":""}`} onClick={()=>setCategory(c.id)}>
+                <div key={c.id} className={`nav-item${category===c.id?" active":""}`} onClick={()=>{setCategory(c.id);setSidebarOpen(false);}}>
                   <span className="nav-icon">{c.icon}</span><span>{c.label}</span>
                   {counts[c.id]>0&&<span className="nav-count">{counts[c.id]}</span>}
                 </div>
@@ -1298,7 +1408,7 @@ export default function PasswordManager() {
               <div className="stat-card"><div className="stat-num">{cards.length}</div><div className="stat-label">Cards</div></div>
             </div>
             <div className="sidebar-actions">
-              <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{setShowSettings(p=>!p);setSelected(null);setSelectedCard(null);}}>⚙ Settings</button>
+              <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{setShowSettings(p=>!p);setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>⚙ Settings</button>
               <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{addSessionEvent("locked","Vault manually locked");handleLock();}}>🔒 Lock</button>
             </div>
           </div>
@@ -1404,6 +1514,26 @@ export default function PasswordManager() {
         {selectedCard&&!showSettings&&<CardDetailPanel card={selectedCard} requireAuth={requireAuth} onClose={()=>setSelectedCard(null)} onEdit={()=>{requireAuth("edit",()=>{setEditCard(selectedCard);setSelectedCard(null);});}} onDelete={()=>handleDeleteCard(selectedCard.id)}/>}
         {showSettings&&<SettingsPanel accent={accent} dark={dark} onAccent={a=>{setAccent(a);}} onToggleDark={()=>setDark(p=>!p)} onClose={()=>setShowSettings(false)}/>}
       </div>
+
+      {/* MOBILE BOTTOM NAV */}
+      <nav className="mobile-bottomnav">
+        <button className={`mobile-tab${page==="vault"?" active":""}`} onClick={()=>{setPage("vault");setSelected(null);setSelectedCard(null);setShowSettings(false);}}>
+          <span className="mobile-tab-icon">◉</span>
+          <span className="mobile-tab-label">Passwords</span>
+        </button>
+        <button className={`mobile-tab${page==="cards"?" active":""}`} onClick={()=>{setPage("cards");setSelected(null);setShowSettings(false);}}>
+          <span className="mobile-tab-icon">💳</span>
+          <span className="mobile-tab-label">Cards</span>
+        </button>
+        <button className={`mobile-tab${page==="dashboard"?" active":""}`} onClick={()=>{setPage("dashboard");setSelected(null);setSelectedCard(null);setShowSettings(false);}}>
+          <span className="mobile-tab-icon">◆</span>
+          <span className="mobile-tab-label">Dashboard</span>
+        </button>
+        <button className={`mobile-tab${showSettings?" active":""}`} onClick={()=>{setShowSettings(p=>!p);setSelected(null);setSelectedCard(null);}}>
+          <span className="mobile-tab-icon">⚙</span>
+          <span className="mobile-tab-label">Settings</span>
+        </button>
+      </nav>
 
       {/* MODALS */}
       {(showAdd||editEntry)&&<AddEditModal entry={editEntry} onSave={handleSave} onClose={()=>{setShowAdd(false);setEditEntry(null);}}/>}
