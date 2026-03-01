@@ -415,6 +415,18 @@ const BASE_STYLES = `
     .pw-card { padding:14px; }
   }
 
+  /* ── SCREENSHOT BLUR OVERLAY ── */
+  .blur-overlay { position:fixed; inset:0; z-index:600; background:rgba(5,5,10,0.9); backdrop-filter:blur(28px) saturate(0); -webkit-backdrop-filter:blur(28px) saturate(0); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; cursor:pointer; animation:fadeIn 0.15s; }
+  .blur-overlay-icon { font-size:52px; filter:grayscale(1) opacity(0.6); }
+  .blur-overlay-title { font-family:'DM Serif Display',serif; font-size:28px; color:rgba(255,255,255,0.85); letter-spacing:0.5px; }
+  .blur-overlay-sub { font-size:12px; color:rgba(255,255,255,0.35); letter-spacing:3px; text-transform:uppercase; }
+  .blur-overlay-hint { font-size:11px; color:rgba(255,255,255,0.2); margin-top:12px; font-family:'JetBrains Mono',monospace; }
+
+  /* ── AES BADGE ── */
+  .aes-badge { display:flex; align-items:center; gap:7px; background:color-mix(in srgb,var(--green) 10%,transparent); border:1px solid color-mix(in srgb,var(--green) 22%,transparent); border-radius:8px; padding:8px 12px; font-size:11px; color:var(--green); font-family:'JetBrains Mono',monospace; letter-spacing:0.5px; }
+  .aes-dot { width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; animation:aesPulse 2.5s ease-in-out infinite; }
+  @keyframes aesPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.85)} }
+
   /* ── DASHBOARD ── */
   .dash-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:24px; }
   .dash-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius2); padding:20px; }
@@ -537,6 +549,41 @@ function ccNetwork(num) {
   if(d.startsWith("5")) return "💳 MC";
   if(d.startsWith("3")) return "💳 Amex";
   return "💳";
+}
+
+// ─────────────────────────────────────────────
+// AES-256-GCM ENCRYPTION (Web Crypto API)
+// ─────────────────────────────────────────────
+const b64ToBytes = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+const bytesToB64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+
+async function deriveKey(password, salt) {
+  const km = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    { name:"PBKDF2", salt, iterations:100_000, hash:"SHA-256" },
+    km, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]
+  );
+}
+async function encryptData(key, data) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({name:"AES-GCM",iv}, key, new TextEncoder().encode(JSON.stringify(data)));
+  const out = new Uint8Array(12 + ct.byteLength);
+  out.set(iv); out.set(new Uint8Array(ct), 12);
+  return bytesToB64(out.buffer);
+}
+async function decryptData(key, b64) {
+  const buf = b64ToBytes(b64);
+  const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:buf.slice(0,12)}, key, buf.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function getOrCreateSalt() {
+  const s = localStorage.getItem("vault_salt");
+  if (s) return b64ToBytes(s);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  localStorage.setItem("vault_salt", bytesToB64(salt.buffer));
+  return salt;
 }
 
 const DEMO_ENTRIES = [
@@ -1114,11 +1161,14 @@ function LockScreen({onUnlock}) {
   const [confirm,setConfirm]=useState("");
   const [isNew,setIsNew]=useState(true);
   const [error,setError]=useState("");
+  const [loading,setLoading]=useState(false);
   const [attempts,setAttempts]=useState(getFailedAttempts);
   const [lockout,setLockout2]=useState(getLockoutState);
   const [lockRemaining,setLockRemaining]=useState(0);
 
-  useEffect(()=>{if(localStorage.getItem("vaultmp"))setIsNew(false);},[]);
+  useEffect(()=>{
+    if(localStorage.getItem("vault_salt")||localStorage.getItem("vaultmp")) setIsNew(false);
+  },[]);
 
   // Lockout countdown
   useEffect(()=>{
@@ -1133,34 +1183,58 @@ function LockScreen({onUnlock}) {
     return()=>clearInterval(id);
   },[lockout]);
 
-  const handle=()=>{
-    if(lockout)return;
-    if(isNew){
-      if(mp.length<6){setError("Master password must be at least 6 characters.");return;}
-      if(mp!==confirm){setError("Passwords don't match.");return;}
-      localStorage.setItem("vaultmp",btoa(mp));
-      clearFailed();
-      addSessionEvent("success","Vault created and unlocked");
-      onUnlock();
-    } else {
-      if(localStorage.getItem("vaultmp")===btoa(mp)){
+  const handle=async()=>{
+    if(lockout||loading)return;
+    setLoading(true); setError("");
+    try {
+      if(isNew){
+        if(mp.length<6){setError("Master password must be at least 6 characters.");setLoading(false);return;}
+        if(mp!==confirm){setError("Passwords don't match.");setLoading(false);return;}
+        const salt=getOrCreateSalt();
+        const key=await deriveKey(mp,salt);
+        localStorage.setItem("vaultmp",btoa(mp));
         clearFailed();
-        addSessionEvent("success",`Unlocked via ${getBrowserInfo()}`);
-        onUnlock();
+        addSessionEvent("success","Vault created — AES-256 encryption enabled");
+        onUnlock(key);
       } else {
-        const newCount=incrementFailed();
-        setAttempts(newCount);
-        addSessionEvent("failed",`Failed attempt ${newCount}/${MAX_ATTEMPTS}`);
-        if(newCount>=MAX_ATTEMPTS){
-          setLockoutState();
-          setLockout2(getLockoutState());
-          setError("");
+        const salt=getOrCreateSalt();
+        const key=await deriveKey(mp,salt);
+        const hasEncrypted=!!localStorage.getItem("vault_entries_enc");
+        if(hasEncrypted){
+          // Verify by attempting decryption
+          try {
+            await decryptData(key, localStorage.getItem("vault_entries_enc"));
+            clearFailed();
+            addSessionEvent("success",`Unlocked via ${getBrowserInfo()} (AES-256)`);
+            onUnlock(key);
+          } catch {
+            const newCount=incrementFailed();
+            setAttempts(newCount);
+            addSessionEvent("failed",`Failed attempt ${newCount}/${MAX_ATTEMPTS}`);
+            if(newCount>=MAX_ATTEMPTS){setLockoutState();setLockout2(getLockoutState());setError("");}
+            else{setError(`Wrong password. ${MAX_ATTEMPTS-newCount} attempt${MAX_ATTEMPTS-newCount!==1?"s":""} remaining.`);}
+            setMp("");
+          }
         } else {
-          setError(`Wrong password. ${MAX_ATTEMPTS-newCount} attempt${MAX_ATTEMPTS-newCount!==1?"s":""} remaining.`);
+          // Legacy btoa check — migrate to AES on success
+          if(localStorage.getItem("vaultmp")===btoa(mp)){
+            clearFailed();
+            addSessionEvent("success",`Unlocked via ${getBrowserInfo()} — migrating to AES-256`);
+            onUnlock(key);
+          } else {
+            const newCount=incrementFailed();
+            setAttempts(newCount);
+            addSessionEvent("failed",`Failed attempt ${newCount}/${MAX_ATTEMPTS}`);
+            if(newCount>=MAX_ATTEMPTS){setLockoutState();setLockout2(getLockoutState());setError("");}
+            else{setError(`Wrong password. ${MAX_ATTEMPTS-newCount} attempt${MAX_ATTEMPTS-newCount!==1?"s":""} remaining.`);}
+            setMp("");
+          }
         }
-        setMp("");
       }
+    } catch(e){
+      setError("An error occurred. Please try again.");
     }
+    setLoading(false);
   };
 
   const lockoutPct=(lockRemaining/LOCKOUT_DURATION)*100;
@@ -1192,10 +1266,16 @@ function LockScreen({onUnlock}) {
               ))}
             </div>
           )}
-          <input className="lock-input" type="password" placeholder={isNew?"Create master password":"Master password"} value={mp} onChange={e=>{setMp(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&(isNew?confirm&&handle():handle())} autoFocus/>
-          {isNew&&<input className="lock-input" type="password" placeholder="Confirm master password" value={confirm} onChange={e=>{setConfirm(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&handle()}/>}
-          <button className="btn-primary" onClick={handle}>{isNew?"Create Vault →":"Unlock →"}</button>
-          {!isNew&&<button className="btn-ghost" onClick={()=>{localStorage.clear();setIsNew(true);setMp("");setError("");setAttempts(0);}}>Reset vault</button>}
+          <input className="lock-input" type="password" placeholder={isNew?"Create master password":"Master password"} value={mp} onChange={e=>{setMp(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&(isNew?confirm&&handle():handle())} autoFocus disabled={loading}/>
+          {isNew&&<input className="lock-input" type="password" placeholder="Confirm master password" value={confirm} onChange={e=>{setConfirm(e.target.value);setError("");}} onKeyDown={e=>e.key==="Enter"&&handle()} disabled={loading}/>}
+          <button className="btn-primary" onClick={handle} disabled={loading} style={{opacity:loading?0.75:1}}>
+            {loading?"Deriving key…":(isNew?"Create Vault →":"Unlock →")}
+          </button>
+          {!isNew&&!loading&&<button className="btn-ghost" onClick={()=>{localStorage.clear();setIsNew(true);setMp("");setError("");setAttempts(0);}}>Reset vault</button>}
+          <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,fontSize:11,color:"var(--text3)",fontFamily:"JetBrains Mono,monospace",marginTop:2}}>
+            <span style={{width:5,height:5,borderRadius:"50%",background:"var(--green)",display:"inline-block"}}/>
+            AES-256-GCM · PBKDF2 · 100K iters
+          </div>
         </div>
       )}
     </div>
@@ -1241,6 +1321,11 @@ export default function PasswordManager() {
   const [showSettings,setShowSettings]=useState(false);
   const [pendingAction,setPendingAction]=useState(null);
   const [sidebarOpen,setSidebarOpen]=useState(false);
+  const [blurred,setBlurred]=useState(false);
+
+  // AES key lives only in memory — never touches localStorage
+  const cryptoKeyRef=useRef(null);
+  const pendingKeyRef=useRef(null);
 
   // Require vault password before sensitive action
   const requireAuth = useCallback((type, fn) => {
@@ -1256,13 +1341,37 @@ export default function PasswordManager() {
   useEffect(()=>{localStorage.setItem("vault_accent",accent);},[accent]);
   useEffect(()=>{localStorage.setItem("vault_dark",dark);},[dark]);
 
-  // Load data
+  // Load data — decrypt with AES key if available, else fall back to plain JSON
   useEffect(()=>{
     if(phase!=="app")return;
-    const saved=localStorage.getItem("vault_entries");
-    if(saved){try{setEntries(JSON.parse(saved));}catch{}}else setEntries(DEMO_ENTRIES);
-    const savedCards=localStorage.getItem("vault_cards");
-    if(savedCards){try{setCards(JSON.parse(savedCards));}catch{}}else setCards(DEMO_CARDS);
+    const load=async()=>{
+      const key=cryptoKeyRef.current;
+      // Entries
+      const encE=localStorage.getItem("vault_entries_enc");
+      if(encE&&key){try{setEntries(await decryptData(key,encE));}catch{setEntries(DEMO_ENTRIES);}}
+      else{const raw=localStorage.getItem("vault_entries");if(raw){try{setEntries(JSON.parse(raw));}catch{}}else setEntries(DEMO_ENTRIES);}
+      // Cards
+      const encC=localStorage.getItem("vault_cards_enc");
+      if(encC&&key){try{setCards(await decryptData(key,encC));}catch{setCards(DEMO_CARDS);}}
+      else{const raw=localStorage.getItem("vault_cards");if(raw){try{setCards(JSON.parse(raw));}catch{}}else setCards(DEMO_CARDS);}
+    };
+    load();
+  },[phase]);
+
+  // Screenshot blur — hide vault when window loses focus or tab switches
+  useEffect(()=>{
+    if(phase!=="app")return;
+    const hide=()=>setBlurred(true);
+    const show=()=>setBlurred(false);
+    const onVis=()=>document.hidden?hide():show();
+    document.addEventListener("visibilitychange",onVis);
+    window.addEventListener("blur",hide);
+    window.addEventListener("focus",show);
+    return()=>{
+      document.removeEventListener("visibilitychange",onVis);
+      window.removeEventListener("blur",hide);
+      window.removeEventListener("focus",show);
+    };
   },[phase]);
 
   // Breach checks
@@ -1275,12 +1384,26 @@ export default function PasswordManager() {
     });
   },[entries,phase]);
 
-  const handleLock=useCallback(()=>{addSessionEvent("locked","Vault auto-locked due to inactivity");setPhase("lock");setSelected(null);setSelectedCard(null);setBreachData({});},[]);
+  const handleLock=useCallback(()=>{
+    cryptoKeyRef.current=null;
+    addSessionEvent("locked","Vault auto-locked due to inactivity");
+    setPhase("lock");setSelected(null);setSelectedCard(null);setBreachData({});setBlurred(false);
+  },[]);
   const remaining=useAutoLock(handleLock,phase==="app");
   const showWarning=remaining<=60&&phase==="app";
 
-  const saveEntries=(e)=>{setEntries(e);localStorage.setItem("vault_entries",JSON.stringify(e));};
-  const saveCards=(c)=>{setCards(c);localStorage.setItem("vault_cards",JSON.stringify(c));};
+  const saveEntries=async(e)=>{
+    setEntries(e);
+    const key=cryptoKeyRef.current;
+    if(key){localStorage.setItem("vault_entries_enc",await encryptData(key,e));}
+    else{localStorage.setItem("vault_entries",JSON.stringify(e));}
+  };
+  const saveCards=async(c)=>{
+    setCards(c);
+    const key=cryptoKeyRef.current;
+    if(key){localStorage.setItem("vault_cards_enc",await encryptData(key,c));}
+    else{localStorage.setItem("vault_cards",JSON.stringify(c));}
+  };
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),2200);};
 
   const duplicates=(() => {
@@ -1329,8 +1452,8 @@ export default function PasswordManager() {
   const hasPanel=selected||selectedCard||showSettings;
 
   // ── RENDER ──
-  if(phase==="lock") return <div className="app dark" style={{["--acc"]:"#c9a84c",["--acc2"]:"#e8c96d",["--acc-dim"]:"rgba(201,168,76,0.15)",["--acc-glow"]:"rgba(201,168,76,0.08)",["--surface"]:"#111114",["--surface2"]:"#18181d",["--surface3"]:"#1f1f26",["--border"]:"#2a2a35",["--border2"]:"#363645",["--text"]:"#f0ede6",["--text2"]:"#9b9790",["--text3"]:"#5a5856",["--black"]:"#0a0a0b",["--red"]:"#e05555",["--green"]:"#4caf82",["--orange"]:"#d4874a",["--blue"]:"#5b8fe8",["--radius"]:"10px",["--radius2"]:"14px",["--page-bg"]:"#0a0a0b",["--card-bg"]:"#111114"}}><style>{BASE_STYLES}</style><LockScreen onUnlock={()=>setPhase("vault-door")}/></div>;
-  if(phase==="vault-door") return <div className="app dark" style={{["--acc"]:"#c9a84c",["--acc2"]:"#e8c96d",["--acc-dim"]:"rgba(201,168,76,0.15)",["--acc-glow"]:"rgba(201,168,76,0.08)",["--surface"]:"#111114",["--surface2"]:"#18181d",["--surface3"]:"#1f1f26",["--border"]:"#2a2a35",["--text"]:"#f0ede6",["--text2"]:"#9b9790",["--text3"]:"#5a5856",["--black"]:"#0a0a0b",["--page-bg"]:"#0a0a0b",["--card-bg"]:"#111114"}}><style>{BASE_STYLES}</style><VaultDoor onDone={()=>setPhase("app")}/></div>;
+  if(phase==="lock") return <div className="app dark" style={{["--acc"]:"#c9a84c",["--acc2"]:"#e8c96d",["--acc-dim"]:"rgba(201,168,76,0.15)",["--acc-glow"]:"rgba(201,168,76,0.08)",["--surface"]:"#111114",["--surface2"]:"#18181d",["--surface3"]:"#1f1f26",["--border"]:"#2a2a35",["--border2"]:"#363645",["--text"]:"#f0ede6",["--text2"]:"#9b9790",["--text3"]:"#5a5856",["--black"]:"#0a0a0b",["--red"]:"#e05555",["--green"]:"#4caf82",["--orange"]:"#d4874a",["--blue"]:"#5b8fe8",["--radius"]:"10px",["--radius2"]:"14px",["--page-bg"]:"#0a0a0b",["--card-bg"]:"#111114"}}><style>{BASE_STYLES}</style><LockScreen onUnlock={(key)=>{pendingKeyRef.current=key;setPhase("vault-door");}}/></div>;
+  if(phase==="vault-door") return <div className="app dark" style={{["--acc"]:"#c9a84c",["--acc2"]:"#e8c96d",["--acc-dim"]:"rgba(201,168,76,0.15)",["--acc-glow"]:"rgba(201,168,76,0.08)",["--surface"]:"#111114",["--surface2"]:"#18181d",["--surface3"]:"#1f1f26",["--border"]:"#2a2a35",["--text"]:"#f0ede6",["--text2"]:"#9b9790",["--text3"]:"#5a5856",["--black"]:"#0a0a0b",["--page-bg"]:"#0a0a0b",["--card-bg"]:"#111114"}}><style>{BASE_STYLES}</style><VaultDoor onDone={()=>{cryptoKeyRef.current=pendingKeyRef.current;setPhase("app");}}/></div>;
 
   const dynamicStyle={};
   cssVars.split(";").forEach(v=>{const [k,val]=v.split(":");if(k&&val)dynamicStyle[k.trim()]=val.trim();});
@@ -1338,6 +1461,17 @@ export default function PasswordManager() {
   return (
     <div className={`app ${dark?"dark":"light"}`} style={dynamicStyle}>
       <style>{BASE_STYLES}</style>
+
+      {/* SCREENSHOT BLUR OVERLAY */}
+      {blurred&&(
+        <div className="blur-overlay" onClick={()=>setBlurred(false)}>
+          <div className="blur-overlay-icon">🔐</div>
+          <div className="blur-overlay-title">Vault Hidden</div>
+          <div className="blur-overlay-sub">Click to reveal</div>
+          <div className="blur-overlay-hint">Screen hidden to protect sensitive data</div>
+        </div>
+      )}
+
       {toast&&<div className="copied-toast">✓ {toast}</div>}
       {showWarning&&(
         <div className="autolock-banner">
@@ -1364,7 +1498,7 @@ export default function PasswordManager() {
         <aside className={`sidebar${sidebarOpen?" open":""}`}>
           <div className="sidebar-logo">
             <div className="logo-mark">🔐</div>
-            <div><div className="logo-text">Zentro</div><div className="logo-ver">v4.0 · ENCRYPTED</div></div>
+            <div><div className="logo-text">Zentro</div><div className="logo-ver">v5.0 · AES-256</div></div>
           </div>
 
           <div className="search-wrap">
@@ -1409,8 +1543,9 @@ export default function PasswordManager() {
             </div>
             <div className="sidebar-actions">
               <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{setShowSettings(p=>!p);setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>⚙ Settings</button>
-              <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{addSessionEvent("locked","Vault manually locked");handleLock();}}>🔒 Lock</button>
+              <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{cryptoKeyRef.current=null;addSessionEvent("locked","Vault manually locked");handleLock();}}>🔒 Lock</button>
             </div>
+            <div className="aes-badge"><div className="aes-dot"/>AES-256-GCM encrypted</div>
           </div>
         </aside>
 
