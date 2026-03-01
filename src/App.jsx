@@ -427,6 +427,41 @@ const BASE_STYLES = `
   .aes-dot { width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0; animation:aesPulse 2.5s ease-in-out infinite; }
   @keyframes aesPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.85)} }
 
+  /* ── TOTP / 2FA ── */
+  .totp-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; }
+  .totp-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius2); padding:20px; display:flex; flex-direction:column; gap:14px; transition:all 0.2s; position:relative; overflow:hidden; }
+  .totp-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg,var(--acc),var(--acc2)); transform:scaleX(0); transform-origin:left; transition:transform 0.3s; }
+  .totp-card:hover::before { transform:scaleX(1); }
+  .totp-card:hover { border-color:var(--border2); transform:translateY(-2px); box-shadow:0 8px 32px rgba(0,0,0,0.12); }
+  .totp-header { display:flex; align-items:center; gap:12px; }
+  .totp-favicon { width:38px; height:38px; border-radius:10px; background:var(--surface3); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; }
+  .totp-site { font-size:14px; font-weight:600; color:var(--text); }
+  .totp-account { font-size:11px; color:var(--text3); font-family:'JetBrains Mono',monospace; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .totp-code-wrap { display:flex; align-items:center; gap:14px; }
+  .totp-ring-wrap { position:relative; width:52px; height:52px; flex-shrink:0; }
+  .totp-ring-wrap svg { transform:rotate(-90deg); }
+  .totp-seconds { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; }
+  .totp-code { font-family:'JetBrains Mono',monospace; font-size:30px; font-weight:700; letter-spacing:6px; color:var(--acc); flex:1; transition:color 0.3s; }
+  .totp-code.urgent { color:var(--red); animation:totpUrgent 0.5s ease-in-out infinite alternate; }
+  @keyframes totpUrgent { from{opacity:1} to{opacity:0.6} }
+  .totp-copy-btn { background:var(--surface2); border:1px solid var(--border); color:var(--text2); border-radius:8px; padding:8px 14px; font-size:12px; cursor:pointer; transition:all 0.15s; white-space:nowrap; font-family:'Outfit',sans-serif; }
+  .totp-copy-btn:hover { background:var(--acc-dim); border-color:var(--acc); color:var(--acc); }
+  .totp-copy-btn.copied { background:color-mix(in srgb,var(--green) 12%,transparent); border-color:var(--green); color:var(--green); }
+  .totp-mini { display:flex; align-items:center; gap:8px; padding:7px 0; border-top:1px solid var(--border); }
+  .totp-mini-code { font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:700; color:var(--acc); letter-spacing:3px; flex:1; }
+  .totp-mini-code.urgent { color:var(--red); }
+  .totp-mini-bar { flex:1; height:3px; background:var(--surface3); border-radius:2px; overflow:hidden; }
+  .totp-mini-fill { height:100%; background:var(--acc); border-radius:2px; transition:width 1s linear; }
+  .totp-mini-fill.urgent { background:var(--red); }
+  .totp-badge { background:color-mix(in srgb,var(--blue) 12%,transparent); border:1px solid color-mix(in srgb,var(--blue) 25%,transparent); color:var(--blue); font-size:9px; padding:1px 6px; border-radius:10px; font-family:'JetBrains Mono',monospace; letter-spacing:0.5px; }
+  .totp-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:60px 24px; text-align:center; }
+  .detail-totp { background:var(--surface2); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:4px; }
+
+  @media (max-width: 768px) {
+    .totp-grid { grid-template-columns:1fr; }
+    .totp-code { font-size:26px; letter-spacing:4px; }
+  }
+
   /* ── DASHBOARD ── */
   .dash-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-bottom:24px; }
   .dash-card { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius2); padding:20px; }
@@ -597,6 +632,90 @@ const DEMO_CARDS = [
   {id:"c1",name:"Chase Sapphire",number:"4532015112830366",holder:"John Doe",expiry:"09/27",cvv:"452",bank:"Chase",color:"gold"},
   {id:"c2",name:"Amex Platinum",number:"378282246310005",holder:"John Doe",expiry:"03/25",cvv:"1234",bank:"American Express",color:"emerald"},
 ];
+
+const DEMO_TOTP = [
+  {id:"t1",name:"GitHub",account:"dev_user@gmail.com",secret:"JBSWY3DPEHPK3PXP",url:"github.com"},
+  {id:"t2",name:"Google",account:"user@gmail.com",secret:"JBSWY3DPEHPK3PXP",url:"google.com"},
+  {id:"t3",name:"AWS",account:"admin@company.com",secret:"JBSWY3DPEHPK3PXP",url:"console.aws.amazon.com"},
+];
+
+// ─────────────────────────────────────────────
+// TOTP ENGINE (RFC 6238 — pure Web Crypto, no libs)
+// ─────────────────────────────────────────────
+
+// Base32 decode
+function base32Decode(s) {
+  const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  s = s.toUpperCase().replace(/=+$/, "").replace(/\s/g, "");
+  let bits = 0, val = 0;
+  const out = [];
+  for (const c of s) {
+    const idx = alpha.indexOf(c);
+    if (idx < 0) continue;
+    val = (val << 5) | idx;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; out.push((val >> bits) & 0xff); }
+  }
+  return new Uint8Array(out);
+}
+
+// HMAC-SHA1 via Web Crypto
+async function hmacSHA1(keyBytes, msgBytes) {
+  const key = await crypto.subtle.importKey("raw", keyBytes, {name:"HMAC",hash:"SHA-1"}, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, msgBytes));
+}
+
+// Generate TOTP code
+async function generateTOTP(secret, period=30, digits=6) {
+  try {
+    const keyBytes = base32Decode(secret);
+    const counter = Math.floor(Date.now() / 1000 / period);
+    const msg = new Uint8Array(8);
+    let c = counter;
+    for (let i = 7; i >= 0; i--) { msg[i] = c & 0xff; c >>= 8; }
+    const hmac = await hmacSHA1(keyBytes, msg);
+    const offset = hmac[19] & 0xf;
+    const code = ((hmac[offset]&0x7f)<<24|(hmac[offset+1]&0xff)<<16|(hmac[offset+2]&0xff)<<8|(hmac[offset+3]&0xff)) % Math.pow(10, digits);
+    return String(code).padStart(digits, "0");
+  } catch { return "------"; }
+}
+
+// Format with space in middle: "123 456"
+function formatTOTPCode(code) {
+  if (!code || code.length !== 6) return code;
+  return code.slice(0,3) + " " + code.slice(3);
+}
+
+// Seconds remaining in current 30s window
+function totpSecondsLeft() {
+  return 30 - (Math.floor(Date.now() / 1000) % 30);
+}
+
+// Hook: live TOTP code + countdown for one secret
+function useTOTP(secret) {
+  const [code, setCode] = useState("------");
+  const [secs, setSecs] = useState(totpSecondsLeft);
+
+  useEffect(() => {
+    if (!secret) return;
+    let mounted = true;
+    const refresh = async () => {
+      const c = await generateTOTP(secret);
+      if (mounted) setCode(c);
+    };
+    refresh();
+    const tick = setInterval(() => {
+      const s = totpSecondsLeft();
+      if (mounted) {
+        setSecs(s);
+        if (s === 30) refresh(); // new window just started
+      }
+    }, 1000);
+    return () => { mounted = false; clearInterval(tick); };
+  }, [secret]);
+
+  return { code, secs };
+}
 
 // ─────────────────────────────────────────────
 // LOCKOUT & SESSION HISTORY UTILS
@@ -815,7 +934,177 @@ function AddEditCardModal({card,onSave,onClose}) {
   );
 }
 
-function DetailPanel({entry,breachData,duplicates,requireAuth,onEdit,onDelete,onClose}) {
+// ─────────────────────────────────────────────
+// TOTP COMPONENTS
+// ─────────────────────────────────────────────
+
+function TOTPCard({totp, onDelete}) {
+  const { code, secs } = useTOTP(totp.secret);
+  const [copied, setCopied] = useState(false);
+  const urgent = secs <= 5;
+  const pct = (secs / 30) * 100;
+  const circumference = 2 * Math.PI * 22;
+  const dashOffset = circumference - (pct / 100) * circumference;
+  const ringColor = urgent ? "var(--red)" : "var(--acc)";
+
+  const copyCode = (e) => {
+    e.stopPropagation();
+    navigator.clipboard?.writeText(code.replace(" ","")).catch(()=>{});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="totp-card">
+      <div className="totp-header">
+        <div className="totp-favicon">
+          <FaviconImg url={totp.url} fallback="🔐" size={38}/>
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div className="totp-site">{totp.name}</div>
+          <div className="totp-account">{totp.account}</div>
+        </div>
+        <span className="totp-badge">2FA</span>
+        <button className="icon-btn" onClick={e=>{e.stopPropagation();onDelete(totp.id);}} style={{fontSize:11,color:"var(--text3)"}}>✕</button>
+      </div>
+
+      <div className="totp-code-wrap">
+        {/* Countdown ring */}
+        <div className="totp-ring-wrap">
+          <svg width="52" height="52" viewBox="0 0 52 52">
+            <circle cx="26" cy="26" r="22" fill="none" stroke="var(--surface3)" strokeWidth="4"/>
+            <circle cx="26" cy="26" r="22" fill="none" stroke={ringColor} strokeWidth="4"
+              strokeDasharray={circumference} strokeDashoffset={dashOffset}
+              strokeLinecap="round" style={{transition:"stroke-dashoffset 1s linear, stroke 0.3s"}}/>
+          </svg>
+          <div className="totp-seconds" style={{color:ringColor}}>{secs}</div>
+        </div>
+
+        <div className={`totp-code${urgent?" urgent":""}`}>{formatTOTPCode(code)}</div>
+
+        <button className={`totp-copy-btn${copied?" copied":""}`} onClick={copyCode}>
+          {copied ? "✓ Copied" : "⎘ Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Compact TOTP display for the detail panel
+function TOTPMini({secret}) {
+  const { code, secs } = useTOTP(secret);
+  const urgent = secs <= 5;
+  const pct = (secs / 30) * 100;
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    navigator.clipboard?.writeText(code.replace(" ","")).catch(()=>{});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="totp-mini">
+      <span style={{fontSize:12,color:"var(--text3)",textTransform:"uppercase",letterSpacing:1,width:50,flexShrink:0}}>OTP</span>
+      <span className={`totp-mini-code${urgent?" urgent":""}`}>{formatTOTPCode(code)}</span>
+      <div className="totp-mini-bar">
+        <div className={`totp-mini-fill${urgent?" urgent":""}`} style={{width:`${pct}%`}}/>
+      </div>
+      <span style={{fontFamily:"JetBrains Mono",fontSize:10,color:urgent?"var(--red)":"var(--text3)",width:20,textAlign:"right"}}>{secs}s</span>
+      <button className="icon-btn" onClick={copy} style={{fontSize:11}}>
+        {copied ? "✓" : "⎘"}
+      </button>
+    </div>
+  );
+}
+
+function AddTOTPModal({onSave, onClose}) {
+  const [form, setForm] = useState({name:"", account:"", secret:"", url:""});
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState("");
+  const set = (k,v) => setForm(p=>({...p,[k]:v}));
+
+  // Live preview of code when secret changes
+  useEffect(() => {
+    if (!form.secret) { setPreview(""); return; }
+    generateTOTP(form.secret).then(c => setPreview(c === "------" ? "Invalid secret" : formatTOTPCode(c)));
+  }, [form.secret]);
+
+  const handleSave = () => {
+    if (!form.name) { setError("Site name is required."); return; }
+    if (!form.secret) { setError("Secret key is required."); return; }
+    const clean = form.secret.toUpperCase().replace(/\s/g,"");
+    if (base32Decode(clean).length === 0) { setError("Invalid base32 secret."); return; }
+    onSave({...form, secret:clean, id:"t"+Date.now()});
+  };
+
+  return (
+    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <div className="modal-header">
+          <span className="modal-title">Add 2FA / TOTP</span>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{display:"flex",flexDirection:"column",gap:14}}>
+            {error && <div className="error-msg">{error}</div>}
+            <div style={{background:"var(--surface2)",border:"1px solid var(--border)",borderRadius:10,padding:14,fontSize:12,color:"var(--text2)",lineHeight:1.6}}>
+              💡 Find your secret key in your account's 2FA settings. Look for "Can't scan? Enter code manually" or "Setup key". It's a string of letters and numbers like <span style={{fontFamily:"JetBrains Mono",color:"var(--acc)"}}>JBSWY3DPEHPK3PXP</span>
+            </div>
+            <div className="field-group"><label>Site Name *</label><input className="field-input" value={form.name} onChange={e=>set("name",e.target.value)} placeholder="e.g. GitHub"/></div>
+            <div className="field-group"><label>Account / Email</label><input className="field-input mono" value={form.account} onChange={e=>set("account",e.target.value)} placeholder="user@example.com"/></div>
+            <div className="field-group"><label>Site URL</label><input className="field-input mono" value={form.url} onChange={e=>set("url",e.target.value)} placeholder="github.com"/></div>
+            <div className="field-group">
+              <label>Secret Key *</label>
+              <input className="field-input mono" value={form.secret} onChange={e=>{set("secret",e.target.value);setError("");}} placeholder="JBSWY3DPEHPK3PXP" style={{letterSpacing:2}}/>
+              {preview && (
+                <div style={{marginTop:8,display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"var(--surface3)",borderRadius:8}}>
+                  <span style={{fontSize:11,color:"var(--text3)",textTransform:"uppercase",letterSpacing:1}}>Preview:</span>
+                  <span style={{fontFamily:"JetBrains Mono",fontSize:20,fontWeight:700,color:preview.includes("Invalid")?"var(--red)":"var(--acc)",letterSpacing:4}}>{preview}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" onClick={handleSave}>Add 2FA →</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Full TOTP page
+function TOTPPage({totps, onAdd, onDelete, showToast}) {
+  return (
+    <>
+      <div className="content-header">
+        <div>
+          <div className="page-title">Authenticator</div>
+          <div className="page-sub">{totps.length} account{totps.length!==1?"s":""} · codes refresh every 30s</div>
+        </div>
+        <div className="header-actions">
+          <button className="btn-primary" onClick={onAdd}>+ Add 2FA</button>
+        </div>
+      </div>
+      {totps.length === 0 ? (
+        <div className="totp-empty">
+          <div style={{fontSize:52}}>🔑</div>
+          <div className="empty-title">No 2FA codes yet</div>
+          <div className="empty-sub">Add your TOTP authenticator accounts to generate live one-time codes alongside your passwords.</div>
+          <button className="btn-primary" onClick={onAdd}>+ Add 2FA Account</button>
+        </div>
+      ) : (
+        <div className="totp-grid">
+          {totps.map(t => <TOTPCard key={t.id} totp={t} onDelete={id=>{onDelete(id);showToast("2FA removed");}}/>)}
+        </div>
+      )}
+    </>
+  );
+}
+
+function DetailPanel({entry, totps, breachData, duplicates, requireAuth, onEdit, onDelete, onClose}) {
   const [showPw,setShowPw]=useState(false);
   const [toast,setToast]=useState(null);
   const copy=(val,label)=>{navigator.clipboard?.writeText(val).catch(()=>{});setToast(label+" copied!");setTimeout(()=>setToast(null),2200);};
@@ -825,6 +1114,11 @@ function DetailPanel({entry,breachData,duplicates,requireAuth,onEdit,onDelete,on
   const age=daysSince(entry.updatedAt||entry.createdAt);
   const breach=breachData[entry.id];
   const isDupe=duplicates.has(entry.id);
+  // Find matching TOTP by name or URL
+  const matchedTotp = totps?.find(t =>
+    t.name.toLowerCase()===entry.name.toLowerCase() ||
+    (entry.url && t.url && entry.url.includes(t.url.split(".")[0]))
+  );
   return (
     <div className="detail-panel">
       {toast&&<div className="copied-toast">✓ {toast}</div>}
@@ -855,6 +1149,7 @@ function DetailPanel({entry,breachData,duplicates,requireAuth,onEdit,onDelete,on
           <div className="detail-row-label">Password</div>
           <div className="detail-row-val"><span style={{fontFamily:"JetBrains Mono",fontSize:12,letterSpacing:2}}>{showPw?entry.password:"•".repeat(Math.min(entry.password.length,16))}</span><button className="icon-btn" onClick={safeReveal}>{showPw?"◌":"◉"}</button><button className="icon-btn" onClick={()=>safeCopy(entry.password,"Password","copy_password")}>⎘</button></div>
         </div>
+        {matchedTotp && <TOTPMini secret={matchedTotp.secret}/>}
         <div style={{padding:"10px 0 4px"}}>
           <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}><span style={{fontSize:11,color:"var(--text3)",textTransform:"uppercase",letterSpacing:1}}>Strength</span><span style={{fontSize:11,fontFamily:"JetBrains Mono",color:s.color,textTransform:"uppercase",letterSpacing:1}}>{s.label}</span></div>
           <div className="strength-indicator">{[1,2,3,4].map(i=><div key={i} className="strength-seg" style={{background:i<=s.score?s.color:"var(--surface3)"}}/>)}</div>
@@ -1305,15 +1600,17 @@ function useAutoLock(onLock,enabled=true) {
 // ─────────────────────────────────────────────
 export default function PasswordManager() {
   const [phase,setPhase]=useState("lock");
-  const [page,setPage]=useState("vault"); // vault | cards | dashboard
+  const [page,setPage]=useState("vault"); // vault | cards | totp | dashboard
   const [entries,setEntries]=useState([]);
   const [cards,setCards]=useState([]);
+  const [totps,setTotps]=useState([]);
   const [search,setSearch]=useState("");
   const [category,setCategory]=useState("all");
   const [selected,setSelected]=useState(null);
   const [selectedCard,setSelectedCard]=useState(null);
   const [showAdd,setShowAdd]=useState(false);
   const [showAddCard,setShowAddCard]=useState(false);
+  const [showAddTotp,setShowAddTotp]=useState(false);
   const [editEntry,setEditEntry]=useState(null);
   const [editCard,setEditCard]=useState(null);
   const [toast,setToast]=useState(null);
@@ -1354,6 +1651,10 @@ export default function PasswordManager() {
       const encC=localStorage.getItem("vault_cards_enc");
       if(encC&&key){try{setCards(await decryptData(key,encC));}catch{setCards(DEMO_CARDS);}}
       else{const raw=localStorage.getItem("vault_cards");if(raw){try{setCards(JSON.parse(raw));}catch{}}else setCards(DEMO_CARDS);}
+      // TOTPs
+      const encT=localStorage.getItem("vault_totps_enc");
+      if(encT&&key){try{setTotps(await decryptData(key,encT));}catch{setTotps(DEMO_TOTP);}}
+      else{const raw=localStorage.getItem("vault_totps");if(raw){try{setTotps(JSON.parse(raw));}catch{}}else setTotps(DEMO_TOTP);}
     };
     load();
   },[phase]);
@@ -1404,6 +1705,12 @@ export default function PasswordManager() {
     if(key){localStorage.setItem("vault_cards_enc",await encryptData(key,c));}
     else{localStorage.setItem("vault_cards",JSON.stringify(c));}
   };
+  const saveTotps=async(t)=>{
+    setTotps(t);
+    const key=cryptoKeyRef.current;
+    if(key){localStorage.setItem("vault_totps_enc",await encryptData(key,t));}
+    else{localStorage.setItem("vault_totps",JSON.stringify(t));}
+  };
   const showToast=(msg)=>{setToast(msg);setTimeout(()=>setToast(null),2200);};
 
   const duplicates=(() => {
@@ -1442,6 +1749,8 @@ export default function PasswordManager() {
     showToast(isEdit?"Card updated":"Card added");
   };
   const handleDeleteCard=(id)=>{saveCards(cards.filter(c=>c.id!==id));setSelectedCard(null);showToast("Card deleted");};
+  const handleSaveTotp=(totp)=>{saveTotps([...totps,totp]);setShowAddTotp(false);showToast("2FA account added");};
+  const handleDeleteTotp=(id)=>{saveTotps(totps.filter(t=>t.id!==id));};
   const handleCopy=(ev,val,label)=>{
     ev.stopPropagation();
     const isPassword = label.toLowerCase().includes("password") || label.toLowerCase().includes("cvv");
@@ -1487,7 +1796,7 @@ export default function PasswordManager() {
           <div className="logo-mark" style={{width:28,height:28,fontSize:14}}>🔐</div>
           <span className="mobile-topbar-title">Zentro</span>
         </div>
-        <button className="mobile-add-btn" onClick={()=>page==="cards"?setShowAddCard(true):setShowAdd(true)}>+</button>
+        <button className="mobile-add-btn" onClick={()=>page==="cards"?setShowAddCard(true):page==="totp"?setShowAddTotp(true):setShowAdd(true)}>+</button>
       </div>
 
       {/* SIDEBAR BACKDROP */}
@@ -1516,6 +1825,9 @@ export default function PasswordManager() {
               {expiredCards>0&&<span className="nav-count" style={{color:"var(--red)",background:"color-mix(in srgb,var(--red) 15%,transparent)"}}>{expiredCards} exp</span>}
               {expiredCards===0&&<span className="nav-count">{cards.length}</span>}
             </div>
+            <div className={`nav-item${page==="totp"?" active":""}`} onClick={()=>{setPage("totp");setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>
+              <span className="nav-icon">⊛</span><span>Authenticator</span><span className="nav-count">{totps.length}</span>
+            </div>
             <div className={`nav-item${page==="dashboard"?" active":""}`} onClick={()=>{setPage("dashboard");setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>
               <span className="nav-icon">◆</span><span>Dashboard</span>
               {(breachCount+weakCount)>0&&<span className="nav-count" style={{color:"var(--red)",background:"color-mix(in srgb,var(--red) 15%,transparent)"}}>{breachCount+weakCount}</span>}
@@ -1536,10 +1848,10 @@ export default function PasswordManager() {
 
           <div className="sidebar-footer">
             <div className="vault-stats">
-              <div className="stat-card"><div className="stat-num">{entries.length}</div><div className="stat-label">Entries</div></div>
+              <div className="stat-card"><div className="stat-num">{entries.length}</div><div className="stat-label">Passwords</div></div>
               <div className="stat-card"><div className="stat-num" style={{color:"var(--green)"}}>{strongCount}</div><div className="stat-label">Strong</div></div>
               <div className="stat-card"><div className="stat-num" style={{color:breachCount>0?"var(--red)":"var(--text3)"}}>{breachCount}</div><div className="stat-label">Breached</div></div>
-              <div className="stat-card"><div className="stat-num">{cards.length}</div><div className="stat-label">Cards</div></div>
+              <div className="stat-card"><div className="stat-num" style={{color:"var(--blue)"}}>{totps.length}</div><div className="stat-label">2FA</div></div>
             </div>
             <div className="sidebar-actions">
               <button className="btn-ghost" style={{fontSize:12,padding:"7px 10px",flex:1}} onClick={()=>{setShowSettings(p=>!p);setSelected(null);setSelectedCard(null);setSidebarOpen(false);}}>⚙ Settings</button>
@@ -1640,12 +1952,15 @@ export default function PasswordManager() {
             </>
           )}
 
+          {/* ── TOTP PAGE ── */}
+          {page==="totp"&&<TOTPPage totps={totps} onAdd={()=>setShowAddTotp(true)} onDelete={handleDeleteTotp} showToast={showToast}/>}
+
           {/* ── DASHBOARD PAGE ── */}
           {page==="dashboard"&&<Dashboard entries={entries} breachData={breachData} duplicates={duplicates}/>}
         </main>
 
         {/* PANELS */}
-        {selected&&!showSettings&&<DetailPanel entry={selected} breachData={breachData} duplicates={duplicates} requireAuth={requireAuth} onClose={()=>setSelected(null)} onEdit={()=>{requireAuth("edit",()=>{setEditEntry(selected);setSelected(null);});}} onDelete={()=>handleDelete(selected.id)}/>}
+        {selected&&!showSettings&&<DetailPanel entry={selected} totps={totps} breachData={breachData} duplicates={duplicates} requireAuth={requireAuth} onClose={()=>setSelected(null)} onEdit={()=>{requireAuth("edit",()=>{setEditEntry(selected);setSelected(null);});}} onDelete={()=>handleDelete(selected.id)}/>}
         {selectedCard&&!showSettings&&<CardDetailPanel card={selectedCard} requireAuth={requireAuth} onClose={()=>setSelectedCard(null)} onEdit={()=>{requireAuth("edit",()=>{setEditCard(selectedCard);setSelectedCard(null);});}} onDelete={()=>handleDeleteCard(selectedCard.id)}/>}
         {showSettings&&<SettingsPanel accent={accent} dark={dark} onAccent={a=>{setAccent(a);}} onToggleDark={()=>setDark(p=>!p)} onClose={()=>setShowSettings(false)}/>}
       </div>
@@ -1660,6 +1975,10 @@ export default function PasswordManager() {
           <span className="mobile-tab-icon">💳</span>
           <span className="mobile-tab-label">Cards</span>
         </button>
+        <button className={`mobile-tab${page==="totp"?" active":""}`} onClick={()=>{setPage("totp");setSelected(null);setSelectedCard(null);setShowSettings(false);}}>
+          <span className="mobile-tab-icon">⊛</span>
+          <span className="mobile-tab-label">2FA</span>
+        </button>
         <button className={`mobile-tab${page==="dashboard"?" active":""}`} onClick={()=>{setPage("dashboard");setSelected(null);setSelectedCard(null);setShowSettings(false);}}>
           <span className="mobile-tab-icon">◆</span>
           <span className="mobile-tab-label">Dashboard</span>
@@ -1673,6 +1992,7 @@ export default function PasswordManager() {
       {/* MODALS */}
       {(showAdd||editEntry)&&<AddEditModal entry={editEntry} onSave={handleSave} onClose={()=>{setShowAdd(false);setEditEntry(null);}}/>}
       {(showAddCard||editCard)&&<AddEditCardModal card={editCard} onSave={handleSaveCard} onClose={()=>{setShowAddCard(false);setEditCard(null);}}/>}
+      {showAddTotp&&<AddTOTPModal onSave={handleSaveTotp} onClose={()=>setShowAddTotp(false)}/>}
       {pendingAction&&<VaultConfirm action={pendingAction.type} onConfirm={()=>{pendingAction.fn();setPendingAction(null);}} onCancel={()=>setPendingAction(null)}/>}
     </div>
   );
